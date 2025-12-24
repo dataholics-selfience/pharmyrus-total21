@@ -1,168 +1,123 @@
-#!/usr/bin/env python3
 """
-Pharmyrus V6 LAYERED - FastAPI Deployment
-API endpoints para deploy em Railway ou outro servidor
+V7 Enhanced API - FastAPI
+Production-ready API with V7 orchestrator
 """
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
-from typing import Optional, List
-import asyncio
-from datetime import datetime
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
+from typing import List, Optional
+import logging
+import sys
 
-from app.services.v6_layered_orchestrator import V6LayeredOrchestrator
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
 
+logger = logging.getLogger(__name__)
 
 # FastAPI app
 app = FastAPI(
-    title="Pharmyrus V6 LAYERED API",
-    description="Multi-layer patent search system with auto-fallback",
-    version="6.0.0-LAYERED"
+    title="Pharmyrus V7 Enhanced API",
+    description="World-class patent intelligence with multi-source crawling",
+    version="7.0.0"
+)
+
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
-# Request models
+# Request model
 class SearchRequest(BaseModel):
-    molecule_name: str
-    brand_name: Optional[str] = None
-    target_countries: List[str] = ["BR"]
+    molecule_name: str = Field(..., description="Molecule name")
+    brand_name: Optional[str] = Field(None, description="Brand name")
+    target_countries: List[str] = Field(default=["BR"], description="Target countries")
 
 
-class HealthResponse(BaseModel):
-    status: str
-    version: str
-    timestamp: str
-
-
-# Global orchestrator instance
-orchestrator: Optional[V6LayeredOrchestrator] = None
+# Global orchestrator (initialized on startup)
+orchestrator = None
 
 
 @app.on_event("startup")
 async def startup():
     """Initialize orchestrator on startup"""
     global orchestrator
-    orchestrator = V6LayeredOrchestrator()
-    print("✅ V6 Layered Orchestrator initialized")
+    from app.services.v7_orchestrator import V7EnhancedOrchestrator
+    orchestrator = V7EnhancedOrchestrator()
+    logger.info("✅ V7 Enhanced Orchestrator initialized")
 
 
-@app.on_event("shutdown")
-async def shutdown():
-    """Cleanup on shutdown"""
-    global orchestrator
-    if orchestrator:
-        await orchestrator.cleanup()
-        print("✅ V6 Layered Orchestrator cleaned up")
-
-
-@app.get("/", response_model=HealthResponse)
+@app.get("/")
 async def root():
-    """Health check endpoint"""
-    return HealthResponse(
-        status="healthy",
-        version="6.0.0-LAYERED",
-        timestamp=datetime.now().isoformat()
-    )
+    """Root endpoint"""
+    return {
+        "service": "Pharmyrus V7 Enhanced API",
+        "version": "7.0.0",
+        "description": "World-class patent intelligence",
+        "endpoints": {
+            "health": "/health",
+            "search": "/api/v7/search"
+        }
+    }
 
 
-@app.get("/health", response_model=HealthResponse)
+@app.get("/health")
 async def health():
-    """Detailed health check"""
-    return HealthResponse(
-        status="healthy",
-        version="6.0.0-LAYERED",
-        timestamp=datetime.now().isoformat()
-    )
+    """Health check endpoint"""
+    return {
+        "status": "healthy",
+        "version": "7.0.0",
+        "orchestrator": "ready" if orchestrator else "not_initialized"
+    }
 
 
-@app.post("/api/v6/search")
+@app.post("/api/v7/search")
 async def search_patents(request: SearchRequest):
     """
-    Main endpoint: Complete patent search
+    Search patents using V7 Enhanced orchestrator
     
-    Example request:
-    {
-        "molecule_name": "Darolutamide",
-        "brand_name": "Nubeqa",
-        "target_countries": ["BR"]
-    }
+    Features:
+    - WIPO Patentscope search
+    - Google Patents Enhanced search
+    - Multi-strategy WO discovery
+    - BR family extraction
+    - Comprehensive consolidation
+    
+    Returns detailed patent intelligence report
     """
     if not orchestrator:
-        raise HTTPException(status_code=503, detail="Service not initialized")
+        raise HTTPException(
+            status_code=503,
+            detail="Orchestrator not initialized"
+        )
     
     try:
-        # Execute search
+        logger.info(f"\n🔍 New search request: {request.molecule_name}")
+        
         results = await orchestrator.search(
             molecule_name=request.molecule_name,
             brand_name=request.brand_name,
             target_countries=request.target_countries
         )
         
-        return JSONResponse(content={
-            "success": True,
-            "data": results,
-            "timestamp": datetime.now().isoformat()
-        })
+        return results
         
     except Exception as e:
+        logger.error(f"❌ Search failed: {e}")
         raise HTTPException(
             status_code=500,
             detail=f"Search failed: {str(e)}"
         )
 
 
-@app.get("/api/v6/metrics")
-async def get_metrics():
-    """Get current system metrics"""
-    if not orchestrator:
-        raise HTTPException(status_code=503, detail="Service not initialized")
-    
-    try:
-        # Get crawler manager metrics
-        manager = orchestrator.crawler_manager
-        metrics = manager.get_all_metrics()
-        
-        return JSONResponse(content={
-            "success": True,
-            "metrics": metrics,
-            "timestamp": datetime.now().isoformat()
-        })
-        
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to get metrics: {str(e)}"
-        )
-
-
-@app.post("/api/v6/reset-circuits")
-async def reset_circuit_breakers():
-    """Reset all circuit breakers (admin endpoint)"""
-    if not orchestrator:
-        raise HTTPException(status_code=503, detail="Service not initialized")
-    
-    try:
-        manager = orchestrator.crawler_manager
-        
-        # Reset all circuits
-        for crawler in [manager.playwright_crawler, manager.httpx_crawler, manager.selenium_crawler]:
-            if crawler and hasattr(crawler, 'circuit_breaker'):
-                crawler.circuit_breaker.reset()
-        
-        return JSONResponse(content={
-            "success": True,
-            "message": "All circuit breakers reset",
-            "timestamp": datetime.now().isoformat()
-        })
-        
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to reset circuits: {str(e)}"
-        )
-
-
-# Run with: uvicorn api_deploy:app --host 0.0.0.0 --port 8000
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

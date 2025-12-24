@@ -1,28 +1,30 @@
-# Pharmyrus V6 STEALTH - Multi-Layer Anti-Detection
+# V7 Enhanced - Requirements
+# Core framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+python-dotenv==1.0.0
 
-# FastAPI and server
-fastapi==0.109.0
-uvicorn[standard]==0.27.0
-pydantic==2.5.3
+# Async support
+httpx==0.25.2
+aiohttp==3.9.1
 
-# HTTP clients
-requests==2.31.0
-httpx==0.26.0
-
-# Playwright (Layer 1 - Most stealth)
-playwright==1.41.0
-
-# Selenium (Layer 2 - Fallback)
+# Browser automation
+playwright==1.40.0
 selenium==4.16.0
 webdriver-manager==4.0.1
 
-# HTML Parsing
-beautifulsoup4==4.12.3
-lxml==5.1.0
-
 # Data processing
-pandas==2.2.0
-python-multipart==0.0.6
+requests==2.31.0
+beautifulsoup4==4.12.2
+lxml==4.9.3
 
-# Utilities
-python-dotenv==1.0.0
+# PubChem
+pubchempy==1.0.4
+
+# Logging
+python-json-logger==2.0.7
+
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1

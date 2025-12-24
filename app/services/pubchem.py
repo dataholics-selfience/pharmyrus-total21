@@ -1,144 +1,140 @@
 """
-PubChem API Service
-Extract molecular data, dev codes, CAS, synonyms
+PubChem Service - Molecule Intelligence
+Get CID, CAS, dev codes, synonyms from PubChem
 """
-import requests
-import logging
+import pubchempy as pcp
 from typing import Dict, List, Optional
+import logging
 
 logger = logging.getLogger(__name__)
 
 
-class PubChemService:
-    """PubChem REST API integration"""
+def get_molecule_data(molecule_name: str) -> Dict:
+    """
+    Get comprehensive molecule data from PubChem
     
-    BASE_URL = "https://pubchem.ncbi.nlm.nih.gov/rest/pug"
-    
-    def __init__(self):
-        self.session = requests.Session()
-        self.session.headers.update({
-            'User-Agent': 'Pharmyrus/5.0 (Patent Research)'
-        })
-    
-    def get_molecule_data(self, molecule_name: str) -> Dict:
-        """Get complete molecule data from PubChem"""
-        logger.info(f"🔍 PubChem: Searching {molecule_name}")
+    Returns:
+    - cid: PubChem CID
+    - cas: CAS Registry Number
+    - molecular_formula: Formula
+    - molecular_weight: Weight
+    - iupac_name: IUPAC name
+    - smiles: SMILES string
+    - inchi: InChI string
+    - inchi_key: InChI Key
+    - dev_codes: Development codes
+    - synonyms: All synonyms
+    """
+    try:
+        # Search for compound
+        compounds = pcp.get_compounds(molecule_name, 'name')
         
-        result = {
-            'cid': None,
-            'cas': None,
-            'molecular_formula': None,
-            'molecular_weight': None,
-            'iupac_name': None,
-            'smiles': None,
-            'inchi': None,
-            'inchi_key': None,
-            'dev_codes': [],
-            'synonyms': []
+        if not compounds:
+            logger.warning(f"No compounds found for {molecule_name}")
+            return _empty_molecule_data()
+        
+        compound = compounds[0]
+        
+        # Get basic properties
+        data = {
+            'cid': compound.cid,
+            'cas': _extract_cas(compound),
+            'molecular_formula': compound.molecular_formula,
+            'molecular_weight': compound.molecular_weight,
+            'iupac_name': compound.iupac_name,
+            'smiles': compound.canonical_smiles,
+            'inchi': compound.inchi,
+            'inchi_key': compound.inchikey
         }
         
-        try:
-            # Get CID first
-            cid = self._get_cid(molecule_name)
-            if not cid:
-                logger.warning(f"⚠️ PubChem: CID not found for {molecule_name}")
-                return result
-            
-            result['cid'] = cid
-            
-            # Get properties
-            props = self._get_properties(cid)
-            if props:
-                result.update(props)
-            
-            # Get synonyms
-            synonyms = self._get_synonyms(cid)
-            if synonyms:
-                result['synonyms'] = synonyms[:100]  # Limit to 100
-                result['dev_codes'] = self._extract_dev_codes(synonyms)
-                result['cas'] = self._extract_cas(synonyms)
-            
-            logger.info(f"✅ PubChem: Found CID={cid}, {len(result['dev_codes'])} dev codes, CAS={result['cas']}")
-            return result
-            
-        except Exception as e:
-            logger.error(f"❌ PubChem error: {str(e)}")
-            return result
-    
-    def _get_cid(self, name: str) -> Optional[int]:
-        """Get compound CID"""
-        try:
-            url = f"{self.BASE_URL}/compound/name/{name}/cids/JSON"
-            resp = self.session.get(url, timeout=10)
-            if resp.ok:
-                data = resp.json()
-                cids = data.get('IdentifierList', {}).get('CID', [])
-                return cids[0] if cids else None
-        except:
-            return None
-    
-    def _get_properties(self, cid: int) -> Dict:
-        """Get molecular properties"""
-        try:
-            url = f"{self.BASE_URL}/compound/cid/{cid}/property/MolecularFormula,MolecularWeight,IUPACName,CanonicalSMILES,InChI,InChIKey/JSON"
-            resp = self.session.get(url, timeout=10)
-            if resp.ok:
-                data = resp.json()
-                props = data.get('PropertyTable', {}).get('Properties', [{}])[0]
-                return {
-                    'molecular_formula': props.get('MolecularFormula'),
-                    'molecular_weight': props.get('MolecularWeight'),
-                    'iupac_name': props.get('IUPACName'),
-                    'smiles': props.get('CanonicalSMILES'),
-                    'inchi': props.get('InChI'),
-                    'inchi_key': props.get('InChIKey')
-                }
-        except:
-            return {}
-    
-    def _get_synonyms(self, cid: int) -> List[str]:
-        """Get all synonyms"""
-        try:
-            url = f"{self.BASE_URL}/compound/cid/{cid}/synonyms/JSON"
-            resp = self.session.get(url, timeout=10)
-            if resp.ok:
-                data = resp.json()
-                synonyms = data.get('InformationList', {}).get('Information', [{}])[0].get('Synonym', [])
-                return [s for s in synonyms if s and len(s) > 2 and len(s) < 200]
-        except:
-            return []
-    
-    def _extract_dev_codes(self, synonyms: List[str]) -> List[str]:
-        """Extract development codes (e.g., ODM-201, BAY-1841788)"""
-        import re
-        dev_pattern = re.compile(r'^[A-Z]{2,5}[-\s]?\d{3,7}[A-Z]?$', re.IGNORECASE)
-        codes = []
-        for s in synonyms:
-            s = s.strip()
-            if dev_pattern.match(s) and 'CID' not in s.upper():
-                codes.append(s)
-                if len(codes) >= 20:  # Limit
-                    break
-        return codes
-    
-    def _extract_cas(self, synonyms: List[str]) -> Optional[str]:
-        """Extract CAS number"""
-        import re
-        cas_pattern = re.compile(r'^\d{2,7}-\d{2}-\d$')
-        for s in synonyms:
-            if cas_pattern.match(s):
-                return s
+        # Get synonyms (includes dev codes)
+        synonyms = compound.synonyms or []
+        
+        # Extract dev codes (pattern: XXX-123, XXX123, etc)
+        dev_codes = _extract_dev_codes(synonyms)
+        
+        data['dev_codes'] = dev_codes
+        data['synonyms'] = synonyms
+        
+        logger.info(f"✅ PubChem: Found CID {data['cid']} for {molecule_name}")
+        
+        return data
+        
+    except Exception as e:
+        logger.error(f"❌ PubChem error: {e}")
+        return _empty_molecule_data()
+
+
+def _extract_cas(compound) -> Optional[str]:
+    """Extract CAS number from compound"""
+    try:
+        # Try to get CAS from synonyms
+        for syn in compound.synonyms or []:
+            # CAS format: 1234-56-7 or 12345-67-8
+            if '-' in syn:
+                parts = syn.split('-')
+                if len(parts) == 3 and all(p.isdigit() for p in parts):
+                    return syn
+        return None
+    except:
         return None
 
 
-# Standalone function for easy import
-def get_molecule_data(molecule_name: str) -> Dict:
+def _extract_dev_codes(synonyms: List[str]) -> List[str]:
     """
-    Standalone function to get molecule data from PubChem
-    Args:
-        molecule_name: Name of the molecule
-    Returns:
-        Dictionary with molecule data
+    Extract development codes from synonyms
+    
+    Patterns:
+    - ODM-201, BAY-1841788 (XXX-123)
+    - ODM201, BAY1841788 (XXX123)
+    - CS-5174, DB12941, etc
     """
-    service = PubChemService()
-    return service.get_molecule_data(molecule_name)
+    dev_codes = []
+    
+    for syn in synonyms:
+        # Skip very long strings
+        if len(syn) > 50:
+            continue
+        
+        # Skip numbers-only
+        if syn.isdigit():
+            continue
+        
+        # Pattern: Letters + numbers with optional dash
+        # ODM-201, BAY-1841788, CS-5174, DB12941, etc
+        if any(c.isalpha() for c in syn) and any(c.isdigit() for c in syn):
+            # Filter common non-dev-code patterns
+            lower_syn = syn.lower()
+            if any(skip in lower_syn for skip in ['name', 'pyrazole', 'phenyl', 'ethyl', 'methyl']):
+                continue
+            
+            # Likely a dev code
+            if len(syn) < 30 and (('-' in syn) or (syn.isupper() or any(c.isupper() for c in syn[:3]))):
+                dev_codes.append(syn)
+    
+    return dev_codes
+
+
+def _empty_molecule_data() -> Dict:
+    """Return empty molecule data structure"""
+    return {
+        'cid': None,
+        'cas': None,
+        'molecular_formula': None,
+        'molecular_weight': None,
+        'iupac_name': None,
+        'smiles': None,
+        'inchi': None,
+        'inchi_key': None,
+        'dev_codes': [],
+        'synonyms': []
+    }
+
+
+# Test
+if __name__ == "__main__":
+    data = get_molecule_data("Darolutamide")
+    print(f"CID: {data['cid']}")
+    print(f"CAS: {data['cas']}")
+    print(f"Dev Codes: {data['dev_codes'][:10]}")
+    print(f"Synonyms: {len(data['synonyms'])}")
